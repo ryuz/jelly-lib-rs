@@ -178,7 +178,7 @@ impl<E> From<E> for Imx219ControlError<E> {
 
 pub struct Imx219Control<I2C: I2cAccess, F>
 where
-    F: Fn(u32),
+    F: Fn(u64),
 {
     i2c: I2C,
     usleep: F,
@@ -205,7 +205,7 @@ where
 
 impl<I2C: I2cAccess, F> Imx219Control<I2C, F>
 where
-    F: Fn(u32),
+    F: Fn(u64),
 {
     pub fn new(i2c: I2C, usleep: F) -> Self {
         Self {
@@ -319,7 +319,7 @@ where
 
         // ソフトリセット
         self.i2c_write_u8(IMX219_SW_RESET, 0x01)?;
-        (self.usleep)(10_000); // 10ms = 10,000μs
+        (self.usleep)(10_000u64); // 10ms = 10,000μs
 
         // 初期設定
         self.i2c_write_u8(IMX219_CSI_LANE_MODE, 0x01)?; // 03: 4Lane, 01: 2Lane
@@ -659,7 +659,7 @@ where
 
 impl<I2C: I2cAccess, F> Drop for Imx219Control<I2C, F>
 where
-    F: Fn(u32),
+    F: Fn(u64),
 {
     fn drop(&mut self) {
         self.close();
