@@ -157,17 +157,21 @@ const IMX219_RESERVE_11: u16 = 0x031F;
 const IMX219_FLASH_STATUS: u16 = 0x0321;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum Imx219ControlError<I2CE> {
+pub enum Imx219ControlError<E> {
     /// 下位のI2C操作で発生したエラー（?演算子で自動変換される）
-    I2c(I2CE),
-    /// アプリケーション固有のエラー（例：レジスタ値の不正）
-    InvalidRegisterValue,
-    /// センサーからのデータチェックサム不一致
-    ChecksumMismatch,
+    I2c(E),
+    /// データサイズがバッファサイズを超過した場合
+    BufferOverflow,
+    /// パラメータ値が有効範囲外の場合
+    ParameterOutOfRange,
+    /// センサーが初期化されていない状態でアクセスした場合
+    NotInitialized,
+    /// センサーから無効な応答を受信した場合
+    InvalidResponse,
 }
 
-impl<I2CE> From<I2CE> for Imx219ControlError<I2CE> {
-    fn from(error: I2CE) -> Self {
+impl<E> From<E> for Imx219ControlError<E> {
+    fn from(error: E) -> Self {
         Imx219ControlError::I2c(error)
     }
 }
@@ -177,7 +181,7 @@ where
     F: Fn(u32),
 {
     i2c: I2C,
-    delay_ms: F,
+    usleep: F,
 
     running: bool,
     binning_h: bool,
@@ -203,10 +207,10 @@ impl<I2C: I2cAccess, F> Imx219Control<I2C, F>
 where
     F: Fn(u32),
 {
-    pub fn new(i2c: I2C, delay_ms: F) -> Self {
+    pub fn new(i2c: I2C, usleep: F) -> Self {
         Self {
             i2c,
-            delay_ms,
+            usleep,
             running: false,
             binning_h: true,
             binning_v: true,
@@ -238,7 +242,7 @@ where
         let mut buf = [0u8; 32]; // Maximum expected size
         let total_len = 2 + data.len();
         if total_len > buf.len() {
-            return Err(Imx219ControlError::InvalidRegisterValue);
+            return Err(Imx219ControlError::BufferOverflow);
         }
 
         buf[0] = addr[0];
@@ -315,7 +319,7 @@ where
 
         // ソフトリセット
         self.i2c_write_u8(IMX219_SW_RESET, 0x01)?;
-        (self.delay_ms)(10);
+        (self.usleep)(10_000); // 10ms = 10,000μs
 
         // 初期設定
         self.i2c_write_u8(IMX219_CSI_LANE_MODE, 0x01)?; // 03: 4Lane, 01: 2Lane
