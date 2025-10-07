@@ -1,12 +1,9 @@
 #![allow(dead_code)]
 
-use std::cmp::{max, min};
-use std::error::Error;
-use std::thread;
-use std::time::Duration;
+use core::cmp::{max, min};
+use libm::{log10, pow};
 
 use crate::i2c_access::I2cAccess;
-
 
 // レジスタ定義
 const IMX219_MODEL_ID: u16 = 0x0000;
@@ -159,10 +156,28 @@ const IMX219_RESERVE_10: u16 = 0x031E;
 const IMX219_RESERVE_11: u16 = 0x031F;
 const IMX219_FLASH_STATUS: u16 = 0x0321;
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum Imx219ControlError<I2CE> {
+    /// 下位のI2C操作で発生したエラー（?演算子で自動変換される）
+    I2c(I2CE),
+    /// アプリケーション固有のエラー（例：レジスタ値の不正）
+    InvalidRegisterValue,
+    /// センサーからのデータチェックサム不一致
+    ChecksumMismatch,
+}
 
+impl<I2CE> From<I2CE> for Imx219ControlError<I2CE> {
+    fn from(error: I2CE) -> Self {
+        Imx219ControlError::I2c(error)
+    }
+}
 
-pub struct Imx219Control<I2C: I2cAccess> {
+pub struct Imx219Control<I2C: I2cAccess, F>
+where
+    F: Fn(u32),
+{
     i2c: I2C,
+    delay_ms: F,
 
     running: bool,
     binning_h: bool,
@@ -184,10 +199,14 @@ pub struct Imx219Control<I2C: I2cAccess> {
     dig_gain_global: u16,
 }
 
-impl<I2C: I2cAccess> Imx219Control<I2C> {
-    pub fn new(i2c: I2C) -> Self {
+impl<I2C: I2cAccess, F> Imx219Control<I2C, F>
+where
+    F: Fn(u32),
+{
+    pub fn new(i2c: I2C, delay_ms: F) -> Self {
         Self {
-            i2c: i2c,
+            i2c,
+            delay_ms,
             running: false,
             binning_h: true,
             binning_v: true,
@@ -209,72 +228,94 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         }
     }
 
-    pub fn i2c_write(&mut self, addr: u16, data: &[u8]) -> Result<(), Box<dyn Error>> {
+    pub fn i2c_write(
+        &mut self,
+        addr: u16,
+        data: &[u8],
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         let addr = addr.to_be_bytes();
-        let mut buf = Vec::<u8>::new();
-        buf.push(addr[0]);
-        buf.push(addr[1]);
-        for v in data {
-            buf.push(*v);
+        // Use a fixed-size buffer for no_std compatibility
+        let mut buf = [0u8; 32]; // Maximum expected size
+        let total_len = 2 + data.len();
+        if total_len > buf.len() {
+            return Err(Imx219ControlError::InvalidRegisterValue);
         }
-        self.i2c.write(&buf)?;
+
+        buf[0] = addr[0];
+        buf[1] = addr[1];
+        for (i, &v) in data.iter().enumerate() {
+            buf[2 + i] = v;
+        }
+        self.i2c.write(&buf[..total_len])?;
         Ok(())
     }
 
-    pub fn i2c_read(&mut self, addr: u16, buf: &mut [u8]) -> Result<(), Box<dyn Error>> {
+    pub fn i2c_read(
+        &mut self,
+        addr: u16,
+        buf: &mut [u8],
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.i2c.write(&(addr.to_be_bytes()))?;
         self.i2c.read(buf)?;
         Ok(())
     }
 
-    pub fn i2c_write_u8(&mut self, addr: u16, data: u8) -> Result<(), Box<dyn Error>> {
+    pub fn i2c_write_u8(
+        &mut self,
+        addr: u16,
+        data: u8,
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.i2c_write(addr, &(data.to_be_bytes()))?;
-//      println!("i2c_u8  {:04x} <= {:02x}", addr, data);
+        //      println!("i2c_u8  {:04x} <= {:02x}", addr, data);
         Ok(())
     }
 
-    pub fn i2c_read_u8(&mut self, addr: u16) -> Result<u8, Box<dyn Error>> {
+    pub fn i2c_read_u8(&mut self, addr: u16) -> Result<u8, Imx219ControlError<I2C::Error>> {
         self.i2c.write(&(addr.to_be_bytes()))?;
         let mut buf: [u8; 1] = [0; 1];
         self.i2c.read(&mut buf)?;
         Ok(u8::from_be_bytes(buf))
     }
 
-    pub fn i2c_write_u16(&mut self, addr: u16, data: u16) -> Result<(), Box<dyn Error>> {
+    pub fn i2c_write_u16(
+        &mut self,
+        addr: u16,
+        data: u16,
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.i2c_write(addr, &(data.to_be_bytes()))?;
-//      println!("i2c_u16 {:04x} <= {:04x}", addr, data);
+        //      println!("i2c_u16 {:04x} <= {:04x}", addr, data);
         Ok(())
     }
 
-    pub fn i2c_read_u16(&mut self, addr: u16) -> Result<u16, Box<dyn Error>> {
+    pub fn i2c_read_u16(&mut self, addr: u16) -> Result<u16, Imx219ControlError<I2C::Error>> {
         self.i2c.write(&(addr.to_be_bytes()))?;
         let mut buf: [u8; 2] = [0; 2];
         self.i2c.read(&mut buf)?;
         Ok(u16::from_be_bytes(buf))
     }
 
-    pub fn open() -> Result<(), Box<dyn Error>> {
+    pub fn open() -> Result<(), Imx219ControlError<I2C::Error>> {
         Ok(())
     }
 
     pub fn close(&mut self) {
-        self.stop().unwrap();
+        let _ = self.stop();
     }
 
-    fn check_open(&self) -> Result<(), Box<dyn Error>> {
+    fn check_open(&self) -> Result<(), Imx219ControlError<I2C::Error>> {
         Ok(())
     }
 
-    pub fn get_model_id(&mut self) -> Result<u16, Box<dyn Error>> {
+    pub fn get_model_id(&mut self) -> Result<u16, Imx219ControlError<I2C::Error>> {
         self.i2c_read_u16(IMX219_MODEL_ID)
     }
 
-    pub fn reset(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn reset(&mut self) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         // ソフトリセット
         self.i2c_write_u8(IMX219_SW_RESET, 0x01)?;
-        thread::sleep(Duration::from_millis(10));
+        (self.delay_ms)(10);
 
         // 初期設定
         self.i2c_write_u8(IMX219_CSI_LANE_MODE, 0x01)?; // 03: 4Lane, 01: 2Lane
@@ -294,14 +335,14 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         Ok(())
     }
 
-    pub fn start(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn start(&mut self) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
         self.i2c_write_u8(IMX219_MODE_SEL, 0x01)?; // mode_select [4:0] 0: SW standby, 1: Streaming
         self.running = true;
         Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn stop(&mut self) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
         if self.running {
             self.i2c_write_u8(IMX219_MODE_SEL, 0x00)?; // mode_select [4:0] 0: SW standby, 1: Streaming
@@ -310,48 +351,48 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         Ok(())
     }
 
-    pub fn set_pixel_clock(&mut self, freq: f64) -> Result<(), Box<dyn Error>> {
+    pub fn set_pixel_clock(&mut self, freq: f64) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.pll_vt_mpy = if freq <= 91000000.0 { 57 } else { 87 };
         Ok(())
     }
 
-    pub fn get_pixel_clock(&mut self) -> Result<f64, Box<dyn Error>> {
+    pub fn get_pixel_clock(&mut self) -> Result<f64, Imx219ControlError<I2C::Error>> {
         Ok(8000000.0 * self.pll_vt_mpy as f64 / 5.0)
     }
 
-    pub fn set_gain(&mut self, db: f64) -> Result<(), Box<dyn Error>> {
+    pub fn set_gain(&mut self, db: f64) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         let db = if db > 0.0 { db } else { 0.0 };
         let db = if db < 20.57 { db } else { 20.57 };
-        let gain = 10f64.powf(db / 20.0);
+        let gain = pow(10.0, db / 20.0);
         self.ana_gain_global = (256.0 * ((gain - 1.0) / gain)) as u8;
         self.i2c_write_u8(IMX219_ANA_GAIN_GLOBAL_A, self.ana_gain_global)?;
         Ok(())
     }
 
-    pub fn get_gain(&mut self) -> Result<f64, Box<dyn Error>> {
+    pub fn get_gain(&mut self) -> Result<f64, Imx219ControlError<I2C::Error>> {
         let gain = 256.0 / (256.0 - self.ana_gain_global as f64);
-        Ok(20.0 * gain.log10())
+        Ok(20.0 * log10(gain))
     }
 
-    pub fn set_digital_gain(&mut self, db: f64) -> Result<(), Box<dyn Error>> {
+    pub fn set_digital_gain(&mut self, db: f64) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         let db = if db > 0.0 { db } else { 0.0 };
         let db = if db < 24.0 { db } else { 24.0 };
-        let gain = 10f64.powf(db / 20.0);
+        let gain = pow(10.0, db / 20.0);
         self.dig_gain_global = (gain * 256.0) as u16;
         self.i2c_write_u16(IMX219_DIG_GAIN_GLOBAL_A, self.dig_gain_global)?;
         Ok(())
     }
 
-    pub fn get_digital_gain(&mut self) -> Result<f64, Box<dyn Error>> {
+    pub fn get_digital_gain(&mut self) -> Result<f64, Imx219ControlError<I2C::Error>> {
         let gain = self.dig_gain_global as f64 / 256.0;
-        Ok(20.0 * gain.log10())
+        Ok(20.0 * log10(gain))
     }
 
-    pub fn set_frame_rate(&mut self, fps: f64) -> Result<(), Box<dyn Error>> {
+    pub fn set_frame_rate(&mut self, fps: f64) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         let new_frm_length =
@@ -372,11 +413,14 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         Ok(())
     }
 
-    pub fn get_frame_rate(&mut self) -> Result<f64, Box<dyn Error>> {
+    pub fn get_frame_rate(&mut self) -> Result<f64, Imx219ControlError<I2C::Error>> {
         Ok((2.0 * self.get_pixel_clock()?) / (self.frm_length as f64 * self.line_length as f64))
     }
 
-    pub fn set_exposure_time(&mut self, exposure_time: f64) -> Result<(), Box<dyn Error>> {
+    pub fn set_exposure_time(
+        &mut self,
+        exposure_time: f64,
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         let new_coarse_integration_time =
@@ -390,7 +434,7 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         Ok(())
     }
 
-    pub fn get_exposure_time(&mut self) -> Result<f64, Box<dyn Error>> {
+    pub fn get_exposure_time(&mut self) -> Result<f64, Imx219ControlError<I2C::Error>> {
         Ok(
             (self.coarse_integration_time as f64 * self.line_length as f64)
                 / (2.0 * self.get_pixel_clock()?),
@@ -434,7 +478,7 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         y: i32,
         binning_h: bool,
         binning_v: bool,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         self.binning_h = binning_h;
@@ -471,7 +515,11 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         Ok(())
     }
 
-    pub fn set_aoi_size(&mut self, width: i32, height: i32) -> Result<(), Box<dyn Error>> {
+    pub fn set_aoi_size(
+        &mut self,
+        width: i32,
+        height: i32,
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.set_aoi(
             width,
             height,
@@ -482,7 +530,11 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         )
     }
 
-    pub fn set_aoi_position(&mut self, x: i32, y: i32) -> Result<(), Box<dyn Error>> {
+    pub fn set_aoi_position(
+        &mut self,
+        x: i32,
+        y: i32,
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.set_aoi(
             self.width,
             self.height,
@@ -506,7 +558,11 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         self.aoi_y
     }
 
-    pub fn set_flip(&mut self, flip_h: bool, flip_v: bool) -> Result<(), Box<dyn Error>> {
+    pub fn set_flip(
+        &mut self,
+        flip_h: bool,
+        flip_v: bool,
+    ) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         self.flip_h = flip_h;
@@ -530,7 +586,7 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
         self.flip_v
     }
 
-    pub fn setup(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn setup(&mut self) -> Result<(), Imx219ControlError<I2C::Error>> {
         self.check_open()?;
 
         self.i2c_write_u8(IMX219_MODE_SEL, 0x00)?; // mode_select [4:0]  (0: SW standby, 1: Streaming)
@@ -597,10 +653,11 @@ impl<I2C: I2cAccess> Imx219Control<I2C> {
     }
 }
 
-
-impl<I2C: I2cAccess> Drop for Imx219Control<I2C> {
+impl<I2C: I2cAccess, F> Drop for Imx219Control<I2C, F>
+where
+    F: Fn(u32),
+{
     fn drop(&mut self) {
         self.close();
     }
 }
-

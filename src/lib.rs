@@ -1,16 +1,11 @@
+#![allow(dead_code)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
-
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod i2c_access;
-pub mod linux_i2c;
 pub mod imx219_control;
 
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+#[cfg(feature = "std")]
+pub mod linux_i2c;
