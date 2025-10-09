@@ -176,6 +176,28 @@ impl<E> From<E> for Imx219ControlError<E> {
     }
 }
 
+impl<E: core::fmt::Display> core::fmt::Display for Imx219ControlError<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Imx219ControlError::I2c(e) => write!(f, "I2C operation failed: {}", e),
+            Imx219ControlError::BufferOverflow => write!(f, "Data size exceeds buffer capacity"),
+            Imx219ControlError::ParameterOutOfRange => write!(f, "Parameter value is out of valid range"),
+            Imx219ControlError::NotInitialized => write!(f, "Sensor is not initialized"),
+            Imx219ControlError::InvalidResponse => write!(f, "Invalid response received from sensor"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<E: std::error::Error + 'static> std::error::Error for Imx219ControlError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Imx219ControlError::I2c(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 pub struct Imx219Control<I2C: I2cAccess, F>
 where
     F: Fn(u64),
