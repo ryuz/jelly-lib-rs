@@ -4,6 +4,7 @@ version = "0.1.1"
 edition = "2021"
 
 [dependencies]
+jelly-mem_access = { version="0.2.5", default-features=false }
 nix = { version ="0.30.1", features = ["fs", "ioctl"], optional = true }
 libc = { version = "0.2.155", optional = true }
 libm = "0.2"
