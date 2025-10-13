@@ -3,6 +3,7 @@
 use core::cmp::{max, min};
 use libm::{log10, pow};
 
+use crate::*;
 use crate::i2c_hal::I2cHal;
 
 // レジスタ定義
@@ -198,12 +199,9 @@ impl<E: std::error::Error + 'static> std::error::Error for Imx219ControlError<E>
     }
 }
 
-pub struct Imx219Control<I2C: I2cHal, F>
-where
-    F: Fn(u64),
+pub struct Imx219SensorDriver<I2C: I2cHal>
 {
     i2c: I2C,
-    usleep: F,
 
     running: bool,
     binning_h: bool,
@@ -225,14 +223,11 @@ where
     dig_gain_global: u16,
 }
 
-impl<I2C: I2cHal, F> Imx219Control<I2C, F>
-where
-    F: Fn(u64),
+impl<I2C: I2cHal> Imx219SensorDriver<I2C>
 {
-    pub fn new(i2c: I2C, usleep: F) -> Self {
+    pub fn new(i2c: I2C) -> Self {
         Self {
             i2c,
-            usleep,
             running: false,
             binning_h: true,
             binning_v: true,
@@ -341,7 +336,8 @@ where
 
         // ソフトリセット
         self.i2c_write_u8(IMX219_SW_RESET, 0x01)?;
-        (self.usleep)(10_000u64); // 10ms = 10,000μs
+        
+        portable_delay(core::time::Duration::from_micros(10_000));
 
         // 初期設定
         self.i2c_write_u8(IMX219_CSI_LANE_MODE, 0x01)?; // 03: 4Lane, 01: 2Lane
@@ -679,9 +675,7 @@ where
     }
 }
 
-impl<I2C: I2cHal, F> Drop for Imx219Control<I2C, F>
-where
-    F: Fn(u64),
+impl<I2C: I2cHal> Drop for Imx219SensorDriver<I2C>
 {
     fn drop(&mut self) {
         self.close();
