@@ -4,9 +4,10 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-pub mod i2c_access;
-pub mod imx219_control;
-pub mod video_dma_driver;
+pub mod i2c_hal;
+pub mod imx219_sensor_driver;
+pub mod video_dma_pac;
+pub mod video_format_regularizer_pac;
 
 #[cfg(feature = "std")]
 pub mod linux_i2c;

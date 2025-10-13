@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+/// Video DMA Peripheral Access Crate
+
 const CORE_ID_BUFFER_MANAGER: u32 = 0x527A0004;
 const CORE_ID_BUFFER_ALLOCATOR: u32 = 0x527A0008;
 const CORE_ID_DMA_STREAM_WRITE: u32 = 0x527A0110;
@@ -226,35 +228,35 @@ const REG_VIDEO_RDMA_MONITOR_ARLEN: usize = 0x17;
 use jelly_mem_access::MemAccess;
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum VideoDmaDriverError {
+pub enum VideoDmaPacError {
     ParameterOutOfRange,
     UnknownDmaCoreId,
     DmaTimeout,
     DmaStopFailed,
 }
 
-impl core::fmt::Display for VideoDmaDriverError {
+impl core::fmt::Display for VideoDmaPacError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            VideoDmaDriverError::ParameterOutOfRange => write!(f, "Parameter value is out of valid range"),
-            VideoDmaDriverError::UnknownDmaCoreId => write!(f, "Unknown DMA core ID"),
-            VideoDmaDriverError::DmaTimeout => write!(f, "DMA operation timeout"),
-            VideoDmaDriverError::DmaStopFailed => write!(f, "Failed to stop DMA"),
+            VideoDmaPacError::ParameterOutOfRange => write!(f, "Parameter value is out of valid range"),
+            VideoDmaPacError::UnknownDmaCoreId => write!(f, "Unknown DMA core ID"),
+            VideoDmaPacError::DmaTimeout => write!(f, "DMA operation timeout"),
+            VideoDmaPacError::DmaStopFailed => write!(f, "Failed to stop DMA"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for VideoDmaDriverError {
+impl std::error::Error for VideoDmaPacError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }
 }
 
 
-type Result<T> = core::result::Result<T, VideoDmaDriverError>;
+type Result<T> = core::result::Result<T, VideoDmaPacError>;
 
-pub struct VideoDmaDriver<T: MemAccess> {
+pub struct VideoDmaPac<T: MemAccess> {
     acc: T,
     wait_irq: Option<fn()>,
 
@@ -276,7 +278,7 @@ pub struct VideoDmaDriver<T: MemAccess> {
 }
 
 
-impl<T: MemAccess> VideoDmaDriver<T> {
+impl<T: MemAccess> VideoDmaPac<T> {
     pub fn new(acc: T, pixel_size: i32, word_size: i32, wait_irq: Option<fn()>) -> Result<Self> {
         let core_id = unsafe { acc.read_reg_u32(0) };
         if core_id != CORE_ID_DMA_STREAM_WRITE
@@ -284,7 +286,7 @@ impl<T: MemAccess> VideoDmaDriver<T> {
             && core_id != CORE_ID_VDMA_AXI4S_TO_AXI4
             && core_id != CORE_ID_VDMA_AXI4_TO_AXI4S
         {
-            return Err(VideoDmaDriverError::UnknownDmaCoreId);
+            return Err(VideoDmaPacError::UnknownDmaCoreId);
         }
 
         Ok(Self {
@@ -431,7 +433,7 @@ impl<T: MemAccess> VideoDmaDriver<T> {
             if let Some(tm) = timeout {
                 count += 1;
                 if count >= tm {
-                    return Err(VideoDmaDriverError::DmaTimeout);
+                    return Err(VideoDmaPacError::DmaTimeout);
                 }
             }
         }

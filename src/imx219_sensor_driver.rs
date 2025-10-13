@@ -3,7 +3,7 @@
 use core::cmp::{max, min};
 use libm::{log10, pow};
 
-use crate::i2c_access::I2cAccess;
+use crate::i2c_hal::I2cHal;
 
 // レジスタ定義
 const IMX219_MODEL_ID: u16 = 0x0000;
@@ -198,7 +198,7 @@ impl<E: std::error::Error + 'static> std::error::Error for Imx219ControlError<E>
     }
 }
 
-pub struct Imx219Control<I2C: I2cAccess, F>
+pub struct Imx219Control<I2C: I2cHal, F>
 where
     F: Fn(u64),
 {
@@ -225,7 +225,7 @@ where
     dig_gain_global: u16,
 }
 
-impl<I2C: I2cAccess, F> Imx219Control<I2C, F>
+impl<I2C: I2cHal, F> Imx219Control<I2C, F>
 where
     F: Fn(u64),
 {
@@ -679,7 +679,7 @@ where
     }
 }
 
-impl<I2C: I2cAccess, F> Drop for Imx219Control<I2C, F>
+impl<I2C: I2cHal, F> Drop for Imx219Control<I2C, F>
 where
     F: Fn(u64),
 {

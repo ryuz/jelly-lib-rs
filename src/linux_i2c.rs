@@ -4,7 +4,7 @@ use nix::fcntl::{open, OFlag};
 use nix::unistd::{read, write};
 use std::os::unix::io::{AsRawFd, OwnedFd};
 
-use crate::i2c_access::I2cAccess;
+use crate::i2c_hal::I2cHal;
 
 #[derive(Debug)]
 pub enum LinuxI2cError {
@@ -64,7 +64,7 @@ impl LinuxI2c {
     }
 }
 
-impl I2cAccess for LinuxI2c {
+impl I2cHal for LinuxI2c {
     type Error = LinuxI2cError;
 
     fn write(&mut self, data: &[u8]) -> Result<usize, Self::Error> {
