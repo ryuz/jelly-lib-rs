@@ -1,7 +1,13 @@
 [package]
 name = "jelly-lib"
 version = "0.2.2"
+authors = ["Ryuz <ryuz@rtc-lab.com>"]
 edition = "2024"
+repository = "https://github.com/ryuz/jelly-lib-rs.git"
+keywords = ["jelly", "fpga"]
+license = "MIT"
+
+description = "A Rust library for the Jelly FPGA real-time computing development platform."
 
 [dependencies]
 jelly-mem_access = { version="0.2.7", default-features=false }
@@ -12,3 +18,4 @@ libm = "0.2"
 [features]
 default = ["std"]
 std = ["nix", "libc"]
+ 
