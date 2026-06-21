@@ -9,7 +9,7 @@ pub mod imx219_sensor_driver;
 pub mod video_dma_pac;
 pub mod video_format_regularizer_pac;
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", target_os = "linux"))]
 pub mod linux_i2c;
 
 
